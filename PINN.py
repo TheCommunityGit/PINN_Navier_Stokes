@@ -1,5 +1,6 @@
 # imports for the project
 import torch
+import time
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
@@ -408,6 +409,15 @@ def animation(model, t_min=0.0, t_max=1.0, n_frames=20, n_points=100, filename="
 # main function (only training model for 100 epochs right now)
 if __name__ == "__main__":
 
+    # GPU configuration
+    torch.backends.cudnn.benchmark = True
+    torch.set_float32_matmul_precision('high')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    if device.type == 'cuda':
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
+        torch.cuda.empty_cache()
+
     # Compute derivatives with autograd (used for residual computation)
     def gradient(output, inputs):
         return torch.autograd.grad(
@@ -441,11 +451,14 @@ if __name__ == "__main__":
     
     # Train the model
     print("Starting training...")
+    start_time = time.time()
     model = train_model(model, physics_loss, optimizer, 
                               x_min=0.0, x_max=1.0,
                               y_min=y_min, y_max=y_max,
                               t_min=0.0, t_max=1.0,
                               batch_size=2000, epochs=100)
+    total_time = time.time() - start_time
+    print(f"Training Time: {total_time}")
     
     # Save model
     #torch.save(model.state_dict(), "improved_navier_stokes_pinn.pth")
