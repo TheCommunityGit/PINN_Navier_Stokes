@@ -611,55 +611,55 @@ try:
 except Exception as e:
     print(f"\nError plotting PINN predictions: {str(e)}")
     
-    # Physics Residuals Analysis
-    print("\nPhysics Residuals Analysis:")
-    # Need fresh tensors with requires_grad=True
-    x_res = torch.rand(1000, 1, device=device, requires_grad=True)
-    y_res = torch.rand(1000, 1, device=device, requires_grad=True) * (y_max - y_min) + y_min
-    t_res = torch.rand(1000, 1, device=device, requires_grad=True)
-    
-    # Compute without affecting model parameters
-    with torch.no_grad():
-        model.eval()
-        with torch.enable_grad():  # Enable grad for residual calculations
-            inputs = torch.cat([x_res, y_res, t_res], dim=1)
-            outputs = model(inputs)
-            vx = outputs[:, 0:1]
-            vy = outputs[:, 1:2]
-            p = outputs[:, 2:3]
-            
-            # Compute derivatives
-            dvx_dx = gradient(vx, x_res)
-            dvx_dy = gradient(vx, y_res)
-            dvy_dx = gradient(vy, x_res)
-            dvy_dy = gradient(vy, y_res)
-            
-            # Continuity residual
-            continuity_res = (dvx_dx + dvy_dy).abs().mean()
-            print(f"  Continuity equation residual: {continuity_res.item():.6f}")
-            
-            # Momentum residuals
-            dvx_dt = gradient(vx, t_res)
-            dvy_dt = gradient(vy, t_res)
-            dp_dx = gradient(p, x_res)
-            dp_dy = gradient(p, y_res)
-            
-            # Second derivatives for viscous terms
-            dvx_dxx = gradient(dvx_dx, x_res)
-            dvx_dyy = gradient(dvx_dy, y_res)
-            dvy_dxx = gradient(dvy_dx, x_res)
-            dvy_dyy = gradient(dvy_dy, y_res)
-            
-            mom_x_res = (dvx_dt + vx*dvx_dx + vy*dvx_dy + dp_dx - nu*(dvx_dxx + dvx_dyy)).abs().mean()
-            mom_y_res = (dvy_dt + vx*dvy_dx + vy*dvy_dy + dp_dy - nu*(dvy_dxx + dvy_dyy)).abs().mean()
-            
-            print(f"  X-momentum residual: {mom_x_res.item():.6f}")
-            print(f"  Y-momentum residual: {mom_y_res.item():.6f}")
+# Physics Residuals Analysis
+print("\nPhysics Residuals Analysis:")
+# Need fresh tensors with requires_grad=True
+x_res = torch.rand(1000, 1, device=device, requires_grad=True)
+y_res = torch.rand(1000, 1, device=device, requires_grad=True) * (y_max - y_min) + y_min
+t_res = torch.rand(1000, 1, device=device, requires_grad=True)
 
-    
-    # plot results
-    plot_results(model, t=0.0)
-    
-    # show animation
-    animation(model, t_min=0.0, t_max=1.0, n_frames=30, filename="navier_stokes_evolution.gif")
-    print("Animation complete!")
+# Compute without affecting model parameters
+with torch.no_grad():
+    model.eval()
+    with torch.enable_grad():  # Enable grad for residual calculations
+        inputs = torch.cat([x_res, y_res, t_res], dim=1)
+        outputs = model(inputs)
+        vx = outputs[:, 0:1]
+        vy = outputs[:, 1:2]
+        p = outputs[:, 2:3]
+        
+        # Compute derivatives
+        dvx_dx = gradient(vx, x_res)
+        dvx_dy = gradient(vx, y_res)
+        dvy_dx = gradient(vy, x_res)
+        dvy_dy = gradient(vy, y_res)
+        
+        # Continuity residual
+        continuity_res = (dvx_dx + dvy_dy).abs().mean()
+        print(f"  Continuity equation residual: {continuity_res.item():.6f}")
+        
+        # Momentum residuals
+        dvx_dt = gradient(vx, t_res)
+        dvy_dt = gradient(vy, t_res)
+        dp_dx = gradient(p, x_res)
+        dp_dy = gradient(p, y_res)
+        
+        # Second derivatives for viscous terms
+        dvx_dxx = gradient(dvx_dx, x_res)
+        dvx_dyy = gradient(dvx_dy, y_res)
+        dvy_dxx = gradient(dvy_dx, x_res)
+        dvy_dyy = gradient(dvy_dy, y_res)
+        
+        mom_x_res = (dvx_dt + vx*dvx_dx + vy*dvx_dy + dp_dx - nu*(dvx_dxx + dvx_dyy)).abs().mean()
+        mom_y_res = (dvy_dt + vx*dvy_dx + vy*dvy_dy + dp_dy - nu*(dvy_dxx + dvy_dyy)).abs().mean()
+        
+        print(f"  X-momentum residual: {mom_x_res.item():.6f}")
+        print(f"  Y-momentum residual: {mom_y_res.item():.6f}")
+
+
+# plot results
+plot_results(model, t=0.0)
+
+# show animation
+animation(model, t_min=0.0, t_max=1.0, n_frames=30, filename="navier_stokes_evolution.gif")
+print("Animation complete!")
