@@ -475,6 +475,7 @@ if __name__ == "__main__":
     
     if False:  # Set to False to skip tuning
         print("\n=== HYPERPARAMETER TUNING ===")
+        print("\n=== This will affect the out put of the final model eval so disregard it===")
         
         # Test configurations
         hp_configs = {
