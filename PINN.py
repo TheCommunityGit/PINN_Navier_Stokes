@@ -13,20 +13,32 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # load in the data (currently hardcoded to our DNS dataset)
 def load_data():
     # Load grid points (y-coordinates)
-    y_DNS = np.loadtxt('y.txt')  # Shape: (Ny,)
-    y_min, y_max = y_DNS.min(), y_DNS.max()
-    y_normalized = (y_DNS - y_min) / (y_max - y_min)  # Map to [0, 1]
+    y_DNS = np.loadtxt('y.txt')  # Shape: (512,)
+    y_min, y_max = -1.0, 1.0  # DNS y-range is [-1,1]
+    y_normalized = (y_DNS - y_min) / (y_max - y_min)  # Map to [0,1]
 
-    # Load mean profiles (u, v, p at all y)
-    profile_data = np.loadtxt('profiles.txt', skiprows=2, max_rows=257) # Shape: (Ny, columns)
-    u_DNS = profile_data[:, 1]  # Adjust indices based on file structure
-    p_DNS = profile_data[:, 4]  # Mean pressure
-
+    # Load mean profiles
+    profile_data = np.loadtxt('profiles.txt', skiprows=2, max_rows=257)  # Shape: (257, columns)
+    u_DNS = profile_data[:, 1]  # Velocity
+    p_DNS = profile_data[:, 4]  # Pressure
+    
     # Load friction velocity (u_tau) history
     u_tau_data = np.loadtxt('re-tau.txt', skiprows=2)  # Shape: (Nt, 2)
     u_tau = u_tau_data[:, 1]  # Time-varying u_tau
 
-    return y_normalized[:257], u_DNS, p_DNS, u_tau, y_min, y_max
+    # Calculate scaling factors
+    u_scale = np.max(np.abs(u_DNS))  # ~14.2 from your data
+    p_scale = np.max(np.abs(p_DNS)) if np.max(np.abs(p_DNS)) != 0 else 1.0
+    
+    # Return normalized data
+    return (
+        y_normalized[:257],  # Match profile data length
+        u_DNS/u_scale, 
+        p_DNS/p_scale, 
+        u_tau/1000.0,  # Scale u_tau if needed
+        y_min, 
+        y_max
+    )
 
 
 # Class for our PINN
@@ -72,36 +84,38 @@ class PINN(nn.Module):
 
 # Class for our 
 class PhysicsLoss:
-    # define with default values
     def __init__(self, nu=0.01, rho=1.0, 
+                 u_scale=14.2, p_scale=1.0,  # DNS scaling factors
                  penalize_residuals=True,
                  enforce_incompressibility=True,
                  boundary_penalty=True):
-
-
-        # PARAMETERS
-        self.nu = nu   # Kinematic viscosity
-        self.rho = rho   # Fluid density
-        self.penalize_residuals = penalize_residuals   # penalize_residuals: Add penalty for PDE residuals
-        self.enforce_incompressibility = enforce_incompressibility   # enforce_incompressibility: Strongly enforce divergence-free condition
-        self.boundary_penalty = boundary_penalty   # boundary_penalty: Add penalty for boundary condition violations
+        
+        # Physical parameters
+        self.nu = nu                  # Kinematic viscosity
+        self.rho = rho                # Fluid density
+        self.u_scale = u_scale        # DNS velocity scaling factor
+        self.p_scale = p_scale        # DNS pressure scaling factor
+        
+        # Loss configuration
+        self.penalize_residuals = penalize_residuals
+        self.enforce_incompressibility = enforce_incompressibility
+        self.boundary_penalty = boundary_penalty
     
     def compute_loss(self, model, x, y, t):
-        # Require gradients
+        # Enable gradient tracking
         x.requires_grad_(True)
         y.requires_grad_(True)
         t.requires_grad_(True)
         
-        # Combine inputs
+        # Network predictions (scaled to DNS units)
         inputs = torch.cat([x, y, t], dim=1)
-        
-        # Network predictions
         outputs = model(inputs)
-        vx = outputs[:, 0]
-        vy = outputs[:, 1]
-        p = outputs[:, 2]
+        vx = outputs[:, 0] * self.u_scale  # Scale velocity
+        vy = outputs[:, 1] * self.u_scale
+        p = outputs[:, 2] * self.p_scale   # Scale pressure
         
-        # Compute derivatives with autograd
+        
+        # Gradient computation function
         def gradient(output, inputs):
             return torch.autograd.grad(
                 output, inputs, 
@@ -110,7 +124,7 @@ class PhysicsLoss:
                 retain_graph=True
             )[0]
         
-        # First-order derivatives
+        # First derivatives
         dvx_dx = gradient(vx, x)
         dvx_dy = gradient(vx, y)
         dvx_dt = gradient(vx, t)
@@ -122,92 +136,81 @@ class PhysicsLoss:
         dp_dx = gradient(p, x)
         dp_dy = gradient(p, y)
         
-        # Second-order derivatives
+        # Second derivatives
         dvx_dxx = gradient(dvx_dx, x)
         dvx_dyy = gradient(dvx_dy, y)
-        
         dvy_dxx = gradient(dvy_dx, x)
         dvy_dyy = gradient(dvy_dy, y)
         
-        # Physics losses
+       # Physics-based losses
         losses = {}
         
-        # Continuity Equation (Incompressibility)
+        # Continuity equation
         if self.enforce_incompressibility:
             continuity = dvx_dx + dvy_dy
             losses['continuity'] = torch.mean(continuity**2)
         
-        # Navier-Stokes x-momentum
-        ns_x = (dvx_dt + vx * dvx_dx + vy * dvx_dy + 
-                (1/self.rho) * dp_dx - 
-                self.nu * (dvx_dxx + dvx_dyy))
-        losses['momentum_x'] = torch.mean(ns_x**2)
+        # Momentum equations
+        if self.penalize_residuals:
+            ns_x = (dvx_dt + vx*dvx_dx + vy*dvx_dy + 
+                   (1/self.rho)*dp_dx - self.nu*(dvx_dxx + dvx_dyy))
+            ns_y = (dvy_dt + vx*dvy_dx + vy*dvy_dy + 
+                   (1/self.rho)*dp_dy - self.nu*(dvy_dxx + dvy_dyy))
+            
+            losses['momentum_x'] = torch.mean(ns_x**2)
+            losses['momentum_y'] = torch.mean(ns_y**2)
         
-        # Navier-Stokes y-momentum
-        ns_y = (dvy_dt + vx * dvy_dx + vy * dvy_dy + 
-                (1/self.rho) * dp_dy - 
-                self.nu * (dvy_dxx + dvy_dyy))
-        losses['momentum_y'] = torch.mean(ns_y**2)
+        # Pressure gradients
+        losses['pressure'] = torch.mean(dp_dx**2 + dp_dy**2)
         
-        # Pressure Gradient Consistency
-        pressure_gradient_x = dp_dx
-        pressure_gradient_y = dp_dy
-        losses['pressure_gradient'] = torch.mean(pressure_gradient_x**2 + pressure_gradient_y**2)
-        
-        # Boundary Condition Penalty
+        # Boundary conditions - FIXED VERSION
         if self.boundary_penalty:
-            # Mask for boundary points
-            x_min_mask = (x < 0.01).squeeze()
-            x_max_mask = (x > 0.99).squeeze()
-            y_min_mask = (y < 0.01).squeeze()
-            y_max_mask = (y > 0.99).squeeze()
+            # Create boundary masks (using .squeeze() to handle 1D case)
+            x_boundary = ((x.squeeze() < 0.01) | (x.squeeze() > 0.99))
+            y_boundary = ((y.squeeze() < 0.01) | (y.squeeze() > 0.99))
             
-            # Compute boundary losses
-            boundary_loss_x = (
-                torch.mean(vx[x_min_mask]**2) + 
-                torch.mean(vx[x_max_mask]**2)
-            )
-            
-            boundary_loss_y = (
-                torch.mean(vy[y_min_mask]**2) + 
-                torch.mean(vy[y_max_mask]**2)
-            )
-            
-            losses['boundary'] = boundary_loss_x + boundary_loss_y
+            # Only calculate loss if there are boundary points
+            if x_boundary.any():
+                losses['boundary_x'] = torch.mean(vx[x_boundary]**2)
+            else:
+                losses['boundary_x'] = torch.tensor(0.0, device=device)
+                
+            if y_boundary.any():
+                losses['boundary_y'] = torch.mean(vy[y_boundary]**2)
+            else:
+                losses['boundary_y'] = torch.tensor(0.0, device=device)
         
-        # Weighted total loss
+        # Weighted loss components
         total_loss = (
-            losses.get('continuity', 0) * 10.0 +  # Strong penalty on incompressibility
+            losses.get('continuity', 0) * 10.0 +
             losses.get('momentum_x', 0) * 1.0 +
             losses.get('momentum_y', 0) * 1.0 +
-            losses.get('pressure_gradient', 0) * 0.5 +
-            losses.get('boundary', 0) * 2.0
+            losses.get('pressure', 0) * 0.5 +
+            losses.get('boundary_x', 0) * 1.0 +
+            losses.get('boundary_y', 0) * 1.0
         )
         
         return total_loss
 
 
-# 
 def train_model(model, loss_fn, optimizer, 
-                        x_min=0.0, x_max=1.0, 
-                        y_min=0.0, y_max=1.0, 
-                        t_min=0.0, t_max=1.0,
-                        batch_size=2000, epochs=500):
+                x_min=0.0, x_max=1.0,
+                y_min=-1.0, y_max=1.0,  # DNS y-range is [-1,1]
+                t_min=0.0, t_max=1.0,
+                batch_size=2000, epochs=500):
     
-    model.train()   # train model
+    model.train()
     
     for epoch in range(epochs):
         optimizer.zero_grad()
         
-        # Sample random points in the domain
+        # Sample points in DNS-scaled domain
         x = torch.rand(batch_size, 1, device=device) * (x_max - x_min) + x_min
         y = torch.rand(batch_size, 1, device=device) * (y_max - y_min) + y_min
         t = torch.rand(batch_size, 1, device=device) * (t_max - t_min) + t_min
         
-        # Compute physics loss
+        # Compute and backpropagate loss
         loss = loss_fn.compute_loss(model, x, y, t)
-        
-        # Backpropagation
         loss.backward()
         optimizer.step()
         
@@ -456,7 +459,7 @@ if __name__ == "__main__":
                               x_min=0.0, x_max=1.0,
                               y_min=y_min, y_max=y_max,
                               t_min=0.0, t_max=1.0,
-                              batch_size=2000, epochs=100)
+                              batch_size=2000, epochs=1000)
     total_time = time.time() - start_time
     print(f"Training Time: {total_time}")
     
