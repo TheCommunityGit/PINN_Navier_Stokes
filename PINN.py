@@ -480,7 +480,7 @@ if __name__ == "__main__":
             eval_loss = physics_loss.compute_loss(model, x_eval, y_eval, t_eval)
         print(f"\nFinal Physics Loss: {eval_loss.item():.6f}")
     
-    # DNS Data Comparison (if DNS data is available at specific locations)
+    # DNS Data Comparison
     try:
         # Select some points where we have DNS data
         y_DNS_tensor = torch.tensor(y_DNS, dtype=torch.float32, device=device).unsqueeze(1)
