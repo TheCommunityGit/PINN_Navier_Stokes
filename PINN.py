@@ -465,7 +465,82 @@ if __name__ == "__main__":
     
     # Save model
     #torch.save(model.state_dict(), "improved_navier_stokes_pinn.pth")
+    
+    def create_eval_tensors():
+        return (
+            torch.rand(2000, 1, device=device, requires_grad=True),
+            torch.rand(2000, 1, device=device, requires_grad=True) * (y_max - y_min) + y_min,
+            torch.rand(2000, 1, device=device, requires_grad=True)
+        )
+    
+    if False:  # Set to False to skip tuning
+        print("\n=== HYPERPARAMETER TUNING ===")
+        
+        # Test configurations
+        hp_configs = {
+            'batch_size': [512, 1024, 2048],
+            'epochs': [32, 64, 128, 256, 512], 
+            'lr': [1e-4, 5e-4, 1e-3, 5e-3],
+            'num_layers': [6, 8, 10, 12],
+            'hidden_size': [32, 64, 128]
+        }
+        
+        # Reduced test epochs for tuning
+        tune_epochs = 40  
+        best_loss = float('inf')
+        best_params = {}
+        
+        # Grid search implementation
+        from itertools import product
+        for bs, lr, nl, hs in product(
+            hp_configs['batch_size'],
+            hp_configs['lr'],
+            hp_configs['num_layers'],
+            hp_configs['hidden_size']
+        ):
+            print(f"\nTesting: bs={bs}, lr={lr}, layers={nl}, hidden={hs}")
+            
+            # Reinitialize with current params
+            model = PINN(num_layers=nl, hidden_size=hs).to(device)
+            optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+            
+            # Short training run
+            start_time = time.time()
+            model = train_model(model, physics_loss, optimizer,
+                              x_min=0.0, x_max=1.0,
+                              y_min=y_min, y_max=y_max,
+                              t_min=0.0, t_max=1.0,
+                              batch_size=bs, epochs=tune_epochs)
+            
+            # Create fresh evaluation tensors for each configuration
+            x_eval, y_eval, t_eval = create_eval_tensors()
+            
+            # Evaluation
+            with torch.no_grad():
+                model.eval()
+                with torch.enable_grad():  # Enable grad for physics loss computation
+                    eval_loss = physics_loss.compute_loss(model, x_eval, y_eval, t_eval)
+                print(f"Test Loss: {eval_loss.item():.6f} | Time: {time.time()-start_time:.2f}s")
+                
+                # Track best
+                if eval_loss < best_loss:
+                    best_loss = eval_loss
+                    best_params = {
+                        'batch_size': bs,
+                        'lr': lr,
+                        'num_layers': nl,
+                        'hidden_size': hs
+                    }
+        
+        # Results summary
+        print("\n=== OPTIMAL PARAMETERS ===")
+        print(f"Best Loss: {best_loss:.6f}")
+        for k, v in best_params.items():
+            print(f"{k:>12}: {v}")
+        print("Note: Epochs should be set as high as possible (500+) for final training")
 
+    # Create fresh evaluation tensors for final evaluation
+    x_eval, y_eval, t_eval = create_eval_tensors()
 
     # Model performance
     print("\nMODEL PERFORMANCE EVALUATION\n")
