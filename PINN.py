@@ -18,7 +18,7 @@ def load_data():
     y_normalized = (y_DNS - y_min) / (y_max - y_min)  # Map to [0, 1]
 
     # Load mean profiles (u, v, p at all y)
-    profile_data = np.loadtxt('profiles.txt', skiprows=2)  # Shape: (Ny, columns)
+    profile_data = np.loadtxt('profiles.txt', skiprows=2, max_rows=257) # Shape: (Ny, columns)
     u_DNS = profile_data[:, 1]  # Adjust indices based on file structure
     p_DNS = profile_data[:, 4]  # Mean pressure
 
@@ -26,7 +26,7 @@ def load_data():
     u_tau_data = np.loadtxt('re-tau.txt', skiprows=2)  # Shape: (Nt, 2)
     u_tau = u_tau_data[:, 1]  # Time-varying u_tau
 
-    return y_normalized, u_DNS, p_DNS, u_tau, y_min, y_max
+    return y_normalized[:257], u_DNS, p_DNS, u_tau, y_min, y_max
 
 
 # Class for our PINN
@@ -572,6 +572,9 @@ if __name__ == "__main__":
             
             print(f"  X-momentum residual: {mom_x_res.item():.6f}")
             print(f"  Y-momentum residual: {mom_y_res.item():.6f}")
+            print(f"y_DNS shape: {y_DNS.shape}")
+            print(f"u_DNS shape: {u_DNS.shape}")
+            print(f"p_DNS shape: {p_DNS.shape}")
     
     # plot results
     plot_results(model, t=0.0)
