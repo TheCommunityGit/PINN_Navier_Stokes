@@ -43,7 +43,7 @@ def load_data():
 
 # Class for our PINN
 class PINN(nn.Module):
-    def __init__(self, num_layers=10, hidden_size=64):
+    def __init__(self, num_layers=10, hidden_size=32):
         super(PINN, self).__init__()
         
         # More complex network architecture with residual connections
@@ -440,8 +440,8 @@ if __name__ == "__main__":
     np.random.seed(42)
     
     # Initialize improved model and optimizer
-    model = PINN(num_layers=10, hidden_size=64).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    model = PINN(num_layers=10, hidden_size=32).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.005, weight_decay=1e-4)
     
     # Enhanced physics loss with DNS data
     physics_loss = PhysicsLoss(
@@ -459,7 +459,7 @@ if __name__ == "__main__":
                               x_min=0.0, x_max=1.0,
                               y_min=y_min, y_max=y_max,
                               t_min=0.0, t_max=1.0,
-                              batch_size=2000, epochs=1000)
+                              batch_size=1024, epochs=500)
     total_time = time.time() - start_time
     print(f"Training Time: {total_time}")
     
@@ -603,6 +603,7 @@ if __name__ == "__main__":
         plt.title('Pressure Profile Comparison')
         plt.tight_layout()
         plt.show()
+        plt.savefig('DNS_comparisons.png')
     
     except Exception as e:
         print(f"\nCould not complete DNS comparison: {str(e)}")

@@ -1,3 +1,5 @@
 navier_stokes_evolution.gif
 PINN_plot.png
 .vscode
+DNS_comparisons.png
+pinn_evolution.gif
