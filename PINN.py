@@ -1,4 +1,3 @@
-# imports for the project
 import torch
 import time
 import torch.nn as nn
@@ -6,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 
-# May potentially use gpu acceleration in the future...
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
@@ -27,7 +26,7 @@ def load_data():
     u_tau = u_tau_data[:, 1]  # Time-varying u_tau
 
     # Calculate scaling factors
-    u_scale = np.max(np.abs(u_DNS))  # ~14.2 from your data
+    u_scale = np.max(np.abs(u_DNS))  
     p_scale = np.max(np.abs(p_DNS)) if np.max(np.abs(p_DNS)) != 0 else 1.0
     
     # Return normalized data
@@ -409,7 +408,7 @@ def animation(model, t_min=0.0, t_max=1.0, n_frames=20, n_points=100, filename="
 
 
 
-# main function (only training model for 100 epochs right now)
+# main function 
 if __name__ == "__main__":
 
     # GPU configuration
@@ -421,7 +420,7 @@ if __name__ == "__main__":
         print(f"GPU: {torch.cuda.get_device_name(0)}")
         torch.cuda.empty_cache()
 
-    # Compute derivatives with autograd (used for residual computation)
+    # Compute derivatives with autograd 
     def gradient(output, inputs):
         return torch.autograd.grad(
             output, inputs, 
@@ -433,11 +432,11 @@ if __name__ == "__main__":
 
     # Load DNS data
     y_DNS, u_DNS, p_DNS, u_tau, y_min, y_max = load_data()
-    nu = 0.01  # Kinematic viscosity (adjust to match DNS)
+    nu = 0.01  # Kinematic viscosity 
 
     # Set random seed for reproducibility
-    torch.manual_seed(42)
-    np.random.seed(42)
+    torch.manual_seed(45)
+    np.random.seed(45)
     
     # Initialize improved model and optimizer
     model = PINN(num_layers=10, hidden_size=32).to(device)
@@ -546,7 +545,7 @@ if __name__ == "__main__":
     # Model performance
     print("\nMODEL PERFORMANCE EVALUATION\n")
     
-    # Final Loss Evaluation - Need to enable grad for physics loss computation
+    # Final Loss Evaluation 
     x_eval = torch.rand(2000, 1, device=device, requires_grad=True)
     y_eval = torch.rand(2000, 1, device=device, requires_grad=True) * (y_max - y_min) + y_min
     t_eval = torch.rand(2000, 1, device=device, requires_grad=True)
@@ -559,7 +558,7 @@ if __name__ == "__main__":
             eval_loss = physics_loss.compute_loss(model, x_eval, y_eval, t_eval)
         print(f"\nFinal Physics Loss: {eval_loss.item():.6f}")
     
-# Plot PINN predictions only (without DNS comparison) but keep MAE output
+# Plot PINN predictions
 try:
     # Select points along y-axis at x=0.5, t=0
     y_DNS_tensor = torch.tensor(y_DNS, dtype=torch.float32, device=device).unsqueeze(1)
@@ -576,14 +575,14 @@ try:
     vy_pred = outputs[:, 1].cpu().numpy()
     p_pred = outputs[:, 2].cpu().numpy()
     
-    # Calculate errors (commented out since we're not comparing to DNS)
-    # u_error = np.mean(np.abs(vx_pred - u_DNS))
-    # p_error = np.mean(np.abs(p_pred - p_DNS))
+    # Calculate errors 
+    u_error = np.mean(np.abs(vx_pred - u_DNS))
+    p_error = np.mean(np.abs(p_pred - p_DNS))
     
-    # Print the stored MAE values (assuming they were calculated elsewhere)
+    # Print the stored MAE values 
     print(f"\nModel Performance Metrics:")
-    print(f"  Velocity MAE: 0.7695 (from previous run)")
-    print(f"  Pressure MAE: 0.2503 (from previous run)")
+    print(f"  Velocity MAE: {u_error} ")
+    print(f"  Pressure MAE: {p_error}")
     
     # Plot velocity and pressure profiles
     plt.figure(figsize=(12, 5))
